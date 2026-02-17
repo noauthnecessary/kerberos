@@ -31,6 +31,7 @@ func main() {
 
 	gw := gateway.New(gateway.Config{
 		Addr:       ":8080",
+		Registry:   reg,
 		Dispatcher: disp,
 		Route:      route,
 	})
