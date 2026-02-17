@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"kerberos/internal/balancer"
@@ -17,7 +18,8 @@ func main() {
 	reg.Register("echo", registry.Instance{ID: "echo-1", Addr: "http://localhost:8081"})
 	reg.Register("echo", registry.Instance{ID: "echo-2", Addr: "http://localhost:8082"})
 
-	b := balancer.New(balancer.RoundRobin, reg)
+	strategy := balancerStrategy()
+	b := balancer.New(strategy, reg)
 	cb := circuitbreaker.New(http.DefaultClient, circuitbreaker.DefaultSettings())
 	disp := dispatcher.New(b, cb)
 
@@ -36,8 +38,24 @@ func main() {
 		Route:      route,
 	})
 
-	log.Println("Kerberos gateway listening on :8080")
+	log.Printf("Kerberos gateway listening on :8080 (strategy: %s)", strategy)
 	if err := gw.Start(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func balancerStrategy() balancer.Strategy {
+	s := os.Getenv("BALANCER_STRATEGY")
+	switch s {
+	case "random":
+		return balancer.Random
+	case "weighted-round-robin":
+		return balancer.WeightedRoundRobin
+	case "weighted-random":
+		return balancer.WeightedRandom
+	case "ip-hash":
+		return balancer.IPHash
+	default:
+		return balancer.RoundRobin
 	}
 }

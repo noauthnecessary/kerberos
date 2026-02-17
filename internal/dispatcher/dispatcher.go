@@ -27,7 +27,7 @@ func New(b *balancer.Balancer, c *circuitbreaker.Client) *Dispatcher {
 // the circuit breaker, and streams the response back.
 // Returns the response and error. Caller is responsible for closing the response body.
 func (d *Dispatcher) Forward(serviceName string, r *http.Request) (*http.Response, error) {
-	instance := d.balancer.Select(serviceName)
+	instance := d.balancer.Select(serviceName, r)
 	if instance == nil {
 		return &http.Response{
 			StatusCode: http.StatusServiceUnavailable,

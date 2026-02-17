@@ -40,6 +40,7 @@ type registerRequest struct {
 	Service string `json:"service"`
 	ID      string `json:"id"`
 	Addr    string `json:"addr"`
+	Weight  int    `json:"weight,omitempty"` // optional; >= 1 for weighted LB, < 1 falls back to unweighted
 }
 
 // unregisterRequest for DELETE /register.
@@ -74,7 +75,7 @@ func (g *Gateway) handleRegister(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "service, id, and addr are required", http.StatusBadRequest)
 			return
 		}
-		g.registry.Register(req.Service, registry.Instance{ID: req.ID, Addr: req.Addr})
+		g.registry.Register(req.Service, registry.Instance{ID: req.ID, Addr: req.Addr, Weight: req.Weight})
 		w.WriteHeader(http.StatusNoContent)
 
 	case http.MethodDelete:

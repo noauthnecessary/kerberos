@@ -6,8 +6,9 @@ import (
 
 // Instance represents a single instance of a service.
 type Instance struct {
-	ID   string // Unique instance identifier
-	Addr string // Address (e.g., "http://localhost:8081")
+	ID     string // Unique instance identifier
+	Addr   string // Address (e.g., "http://localhost:8081")
+	Weight int    // Optional. >= 1 enables weighted LB; < 1 or 0 falls back to unweighted
 }
 
 // Service represents a named service with one or more instances.

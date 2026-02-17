@@ -35,10 +35,11 @@ sequenceDiagram
     R->>R: Match path → service name
     R-->>G: "echo"
     G->>D: Forward(service, request)
-    D->>B: Select(service)
+    D->>B: Select(service, request)
     B->>Reg: GetInstances(service)
     Reg-->>B: [inst-1, inst-2]
-    B-->>D: instance (round-robin)
+    Note right of B: Strategy: round-robin,<br/>random, weighted-*, ip-hash
+    B-->>D: instance (by strategy)
     D->>CB: Do(addr, request)
     CB->>BE: HTTP forward
     BE-->>CB: Response
@@ -56,7 +57,7 @@ sequenceDiagram
     participant R as Registry
 
     Note over S,R: Self-registration (startup)
-    S->>G: POST /register<br/>{service, id, addr}
+    S->>G: POST /register<br/>{service, id, addr, weight?}
     G->>R: Register(service, instance)
     R-->>G: OK
     G-->>S: 204 No Content
@@ -80,7 +81,7 @@ flowchart TB
 
     subgraph Core
         Dispatcher
-        Balancer
+        Balancer["Balancer<br/>(round-robin, random,<br/>weighted-*, ip-hash)"]
         Registry[(Registry)]
         CircuitBreaker
     end
@@ -104,7 +105,7 @@ flowchart TB
 
 - **Service Registry** – In-memory registry for services and instances
 - **HTTP Registration API** – Self-register via POST/DELETE `/register`
-- **Load Balancer** – Round-robin selection across instances
+- **Load Balancer** – Multiple strategies: round-robin, random, weighted-round-robin, weighted-random, ip-hash
 - **Circuit Breaker** – Per-backend circuit breaker to prevent cascading failures
 - **HTTP Gateway** – Single entry point that routes by path prefix
 
@@ -122,12 +123,42 @@ kerberos/
 └── README.md
 ```
 
+## Load Balancing
+
+```mermaid
+flowchart TB
+    subgraph Strategies
+        RR[round-robin]
+        RND[random]
+        WRR[weighted-round-robin]
+        WR[weighted-random]
+        IP[ip-hash]
+    end
+
+    WRR -->|weight >= 1| Weighted["weighted selection"]
+    WR -->|weight >= 1| Weighted
+    WRR -->|weight &lt; 1 or omitted| RR
+    WR -->|weight &lt; 1 or omitted| RND
+```
+
+| Strategy | Env Var | Description |
+|----------|---------|-------------|
+| `round-robin` | (default) | Cycles through instances sequentially |
+| `random` | `BALANCER_STRATEGY=random` | Picks a random instance each time |
+| `weighted-round-robin` | `BALANCER_STRATEGY=weighted-round-robin` | Round-robin proportional to weight. If weight &lt; 1 or omitted, falls back to round-robin |
+| `weighted-random` | `BALANCER_STRATEGY=weighted-random` | Random selection proportional to weight. If weight &lt; 1 or omitted, falls back to random |
+| `ip-hash` | `BALANCER_STRATEGY=ip-hash` | Same client IP → same instance (session affinity) |
+
+Weights are set at registration. Example: `{"service":"echo","id":"inst-1","addr":"http://localhost:8081","weight":3}`. Weight ≥ 1 enables weighted strategies; weight &lt; 1 or omitted uses the unweighted variant.
+
 ## Usage
 
 ### Run the gateway
 
 ```bash
 go run .
+# Or with a different load balancing strategy:
+BALANCER_STRATEGY=ip-hash go run .
 ```
 
 The gateway listens on `:8080`. Routes are configured in `main.go` – by default, `/echo/*` is routed to the `echo` service.
@@ -137,10 +168,10 @@ The gateway listens on `:8080`. Routes are configured in `main.go` – by defaul
 **Option 1: HTTP API (self-registration)**
 
 ```bash
-# Register an instance
+# Register an instance (optional: add "weight": 3 for weighted strategies)
 curl -X POST http://localhost:8080/register \
   -H "Content-Type: application/json" \
-  -d '{"service":"echo","id":"inst-1","addr":"http://localhost:8081"}'
+  -d '{"service":"echo","id":"inst-1","addr":"http://localhost:8081","weight":2}'
 
 # Unregister an instance
 curl -X DELETE http://localhost:8080/register \
@@ -155,7 +186,7 @@ curl http://localhost:8080/services
 
 ```go
 reg.Register("myservice", registry.Instance{ID: "inst-1", Addr: "http://localhost:9001"})
-reg.Register("myservice", registry.Instance{ID: "inst-2", Addr: "http://localhost:9002"})
+reg.Register("myservice", registry.Instance{ID: "inst-2", Addr: "http://localhost:9002", Weight: 2})
 ```
 
 ### Routing
