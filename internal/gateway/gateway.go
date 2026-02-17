@@ -30,11 +30,16 @@ func New(cfg Config) *Gateway {
 	}
 }
 
-// Start begins listening for HTTP requests.
-func (g *Gateway) Start() error {
+// Handler returns the HTTP handler for the gateway. Useful for testing.
+func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", g.handleRequest)
-	return http.ListenAndServe(g.addr, mux)
+	return mux
+}
+
+// Start begins listening for HTTP requests.
+func (g *Gateway) Start() error {
+	return http.ListenAndServe(g.addr, g.Handler())
 }
 
 func (g *Gateway) handleRequest(w http.ResponseWriter, r *http.Request) {
