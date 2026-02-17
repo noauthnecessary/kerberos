@@ -7,7 +7,6 @@ import (
 
 	"kerberos/internal/balancer"
 	"kerberos/internal/circuitbreaker"
-	"kerberos/internal/registry"
 )
 
 // Dispatcher forwards incoming HTTP requests to backend services.
