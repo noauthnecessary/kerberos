@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 
 	"kerberos/internal/dispatcher"
 	"kerberos/internal/registry"
@@ -15,6 +17,7 @@ type Gateway struct {
 	registry   *registry.Registry
 	dispatcher *dispatcher.Dispatcher
 	route      dispatcher.RouteFunc
+	server     *http.Server
 }
 
 // Config for the gateway.
@@ -110,9 +113,25 @@ func (g *Gateway) handleServices(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(services)
 }
 
-// Start begins listening for HTTP requests.
+// Start begins listening for HTTP requests. Blocks until the server stops.
 func (g *Gateway) Start() error {
-	return http.ListenAndServe(g.addr, g.Handler())
+	g.server = &http.Server{
+		Addr:         g.addr,
+		Handler:      g.Handler(),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	return g.server.ListenAndServe()
+}
+
+// Shutdown gracefully stops the gateway. Waits for in-flight requests to complete
+// up to the context deadline.
+func (g *Gateway) Shutdown(ctx context.Context) error {
+	if g.server == nil {
+		return nil
+	}
+	return g.server.Shutdown(ctx)
 }
 
 func (g *Gateway) handleRequest(w http.ResponseWriter, r *http.Request) {

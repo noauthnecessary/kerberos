@@ -107,6 +107,7 @@ flowchart TB
 - **HTTP Registration API** – Self-register via POST/DELETE `/register`
 - **Load Balancer** – Multiple strategies: round-robin, random, weighted-round-robin, weighted-random, ip-hash
 - **Circuit Breaker** – Per-backend circuit breaker to prevent cascading failures
+- **Resilience** – Request timeouts, retries with backoff, graceful shutdown
 - **HTTP Gateway** – Single entry point that routes by path prefix
 
 ## Project Structure
@@ -214,3 +215,13 @@ route := func(r *http.Request) string {
 ## Circuit Breaker
 
 Each backend has its own circuit breaker. After 5 consecutive failures, the circuit opens and requests fail fast. After 30 seconds, it moves to half-open and allows a few probe requests.
+
+## Resilience
+
+| Feature | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| **Request timeout** | `REQUEST_TIMEOUT` | 30 (seconds) | Timeout for forwarded HTTP requests |
+| **Retries** | `RETRY_MAX` | 3 | Max retries with exponential backoff on connection errors |
+| **Graceful shutdown** | — | — | SIGINT/SIGTERM triggers drain (30s max wait) |
+
+Retries use exponential backoff (100ms → 200ms → 400ms, capped at 2s). Only network/connection errors are retried; HTTP 4xx/5xx are not retried.

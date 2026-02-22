@@ -2,12 +2,16 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"kerberos/internal/balancer"
 	"kerberos/internal/circuitbreaker"
@@ -298,5 +302,77 @@ func TestGateway_Register_MissingFields(t *testing.T) {
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestGateway_GracefulShutdown(t *testing.T) {
+	// Backend that delays response
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer backend.Close()
+
+	r := registry.New()
+	r.Register("echo", registry.Instance{ID: "1", Addr: backend.URL})
+	b := balancer.New(balancer.RoundRobin, r)
+	cb := circuitbreaker.New(backend.Client(), circuitbreaker.DefaultSettings())
+	disp := dispatcher.New(b, cb)
+	route := func(req *http.Request) string {
+		if strings.HasPrefix(req.URL.Path, "/echo") {
+			return "echo"
+		}
+		return ""
+	}
+	gw := New(Config{
+		Dispatcher: disp,
+		Route:      route,
+	})
+
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer ln.Close()
+
+	srv := &http.Server{
+		Handler:     gw.Handler(),
+		ReadTimeout: 15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}
+	go srv.Serve(ln)
+	addr := "http://" + ln.Addr().String()
+
+	var wg sync.WaitGroup
+	var respErr error
+	var statusCode int
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resp, err := http.Get(addr + "/echo/")
+		if err != nil {
+			respErr = err
+			return
+		}
+		defer resp.Body.Close()
+		statusCode = resp.StatusCode
+	}()
+
+	// Let request reach the backend
+	time.Sleep(20 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	wg.Wait()
+	if respErr != nil {
+		t.Fatalf("request failed: %v", respErr)
+	}
+	if statusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", statusCode)
 	}
 }
